@@ -10,6 +10,7 @@ const path = require('path');
 const asblController = require('../controllers/asblController');
 const authController = require('../controllers/authController');
 const { getDropdownData } = require('../controllers/accessRequestController'); // Import the new controller function
+const rawDrillController = require('../controllers/rawDrillController');
 
 
 // In teeno routes ke naam controller ke function se match hone chahiye
@@ -141,5 +142,9 @@ router.post('/access/request', accessRequestController.submitRequest);
 router.get('/access/pending', accessRequestController.getPendingRequests);
 router.post('/access/approve', accessRequestController.approveRequest);
 router.post('/access/decline', accessRequestController.declineRequest);
+
+// Raw Data Explorer (CJ74 / CJI5) Routes
+router.get('/raw-get-data', rawDrillController.getRawData);
+router.get('/raw-export', rawDrillController.exportRawData);
 
 module.exports = router;

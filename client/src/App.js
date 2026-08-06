@@ -12,6 +12,9 @@ import DrillDownPage from './pages/DrillDownPage';
 import MyAccess from './pages/MyAccess';
 import Logs from './pages/Logs';
 import ERPResource from './pages/ERPResource';
+import RequestAccess from './pages/RequestAccess';
+import AccessRequestsTable from './pages/AccessRequestsTable';
+import RawDrill from './pages/RawDrill'
 
 // ============================================================
 // DEFAULT FILTERS — ek jagah define karo, dono pages use karein
@@ -103,6 +106,7 @@ function App() {
                   filters={sharedFilters}
                   onFilterChange={handleFilterChange}
                   onResetFilters={handleResetFilters}
+                  setActiveTab={setActiveTab}
                 />
               )}
               {activeTab === 'add-project' && <AddProject user={user} />}
@@ -122,6 +126,14 @@ function App() {
               )}
               {activeTab === 'my-access' && (<MyAccess user={user} />)}
               {activeTab === 'logs' && (<Logs />)}
+              {activeTab === 'cj74/cji5' && (
+                <RawDrill
+                  user={user}
+                  filters={sharedFilters} // Same filters jo Summary View mein hain
+                  onFilterChange={handleFilterChange}
+                  onResetFilters={handleResetFilters}
+                />
+              )}
               
               {['ftc'].includes(activeTab) && (
                 <div className="bg-white p-20 rounded-xl shadow text-center border-2 border-dashed border-gray-200">
@@ -133,6 +145,8 @@ function App() {
           } />
 
           <Route path="/drilldown" element={<DrillDownPage />} />
+          <Route path="/request-access" element={<RequestAccess />} />
+        <Route path="/admin/access-requests" element={<AccessRequestsTable />} />
         </Routes>
       </main>
     </div>

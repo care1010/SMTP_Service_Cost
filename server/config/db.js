@@ -14,7 +14,7 @@ const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'service_cost',
-    port: parseInt(process.env.DB_PORT) || 5433,
+    port: parseInt(process.env.DB_PORT) || 5432,
 
     // 🔥 Optimal pool size = (CPU cores * 2) + disk spindles
     // Local dev: 10-20 sufficient; production: 20-30 max

@@ -776,7 +776,7 @@ exports.syncDrilldownTables = async () => {
                 cost_element_descr, refdocno, document_no, doc_date, postg_date, offst_acct, 
                 name_of_offsetting_account, material, material_description, name1, name22, created_on, 
                 origin_form, user_name, pur_doc, quantity, purchase_order_text, loa_id, wbs_string, 
-                wbs_type, wbs_description, categories, cost_revenue
+                wbs_type, wbs_description, categories, cost_revenue, merged_wbs
             )
             SELECT 
                 c.id, 
@@ -792,7 +792,7 @@ exports.syncDrilldownTables = async () => {
                 c.material, c.material_description, c.name1, c.name22, c.created_on, c.frm, 
                 c.user_name, c.pur_doc, c.quantity, c.purchase_order_text, 
                 m.loa_id, m.merged_wbs, m.wbs_type, m.wbs_description, 
-                cm.categories, cm.cost_revenue
+                cm.categories, cm.cost_revenue, m.merged_wbs
             FROM cj74_new c
             LEFT JOIN (
                 SELECT DISTINCT single_wbs, loa_id, merged_wbs, wbs_type, wbs_description
@@ -810,7 +810,7 @@ exports.syncDrilldownTables = async () => {
                 id, project_def, sap_wbs, refdocno, item, co_object_name, supplier, name, exch_rate, 
                 year, per, cost_element, cost_element_descr, matl_group, material, description, 
                 user_name, docc, quantity, qty_plan, debit_date, doc_date, cocode, report_currency, 
-                val_in_rep_cur, tcurr, value_tcur, obj_curr, value_in_obj_crcy, oc_val, loa_id, wbs_type, categories
+                val_in_rep_cur, tcurr, value_tcur, obj_curr, value_in_obj_crcy, oc_val, loa_id, wbs_type, categories, merged_wbs
             )
             SELECT 
                 c.id, c.project_def, TRIM(c.wbs_element) AS sap_wbs, c.refdocno, c.item, 
@@ -819,10 +819,10 @@ exports.syncDrilldownTables = async () => {
                 c.quantity, c.qty_plan, c.debit_date, c.doc_date, c.cocode, c.report_currency, 
                 c.val_in_rep_cur, c.tcurr, c.value_tcur, c.obj_curr, c.value_in_obj_crcy, 
                 CAST(COALESCE(c.val_in_rep_cur, 0) AS NUMERIC(15,2)) / 1000 AS oc_val, 
-                m.loa_id, m.wbs_type, cm.categories
+                m.loa_id, m.wbs_type, cm.categories, m.merged_wbs
             FROM cji5_new c
             LEFT JOIN (
-                SELECT DISTINCT single_wbs, loa_id, wbs_type
+                SELECT DISTINCT single_wbs, loa_id, wbs_type, merged_wbs
                 FROM wbs_loa_id_mapping1
             ) m ON TRIM(c.wbs_element) = m.single_wbs
             LEFT JOIN (
@@ -2133,4 +2133,70 @@ exports.uploadERPResource = async (req, res) => {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ message: 'Upload failed: ' + err.message });
   }
+};
+
+
+// ==========================================
+// RAW DATA EXPLORER (CJ74 / CJI5)
+// ==========================================
+// dataController.js ya rawDrillController.js mein getRawData function ko update karein
+exports.getRawData = async (req, res) => {
+    try {
+        const { tableType, start, length, draw, type, allowedCustomers } = req.query;
+        const tableName = tableType === 'cj74' ? 't_cj74_transformed' : 't_cji5_transformed';
+        
+        let conditions = ["1=1"];
+        let params = [];
+
+        // 🔥 NAYA LOGIC: CJ74 ke liye NTC aur 0 values ko filter out karo
+        if (tableType === 'cj74') {
+            conditions.push("cost_revenue <> 'NTC'");
+            // ABS check isliye taaki 0.0001 jaisi kachra values bhi hat jayein
+            conditions.push("ABS(COALESCE(val_in_rc, 0)) > 0.01"); 
+        }
+
+        applyRLS(type, allowedCustomers, conditions, params);
+        buildCommonFilters(req.query, conditions, params);
+
+        const whereClause = `WHERE ${conditions.join(' AND ')}`;
+        
+        const dataSql = `SELECT * FROM ${tableName} ${whereClause} LIMIT ? OFFSET ?`;
+        const countSql = `SELECT COUNT(*) as total FROM ${tableName} ${whereClause}`;
+
+        const [rows] = await db.query(dataSql, [...params, parseInt(length) || 50, parseInt(start) || 0]);
+        const [total] = await db.query(countSql, params);
+
+        res.status(200).json({
+            draw: parseInt(draw),
+            recordsTotal: total[0].total,
+            recordsFiltered: total[0].total,
+            data: rows
+        });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+exports.exportRawData = async (req, res) => {
+    try {
+        const { tableType, type, allowedCustomers } = req.query;
+        const tableName = tableType === 'cj74' ? 't_cj74_transformed' : 't_cji5_transformed';
+        
+        let conditions = ["1=1"];
+        let params = [];
+        applyRLS(type, allowedCustomers, conditions, params);
+        buildCommonFilters(req.query, conditions, params);
+
+        const [rows] = await db.query(`SELECT * FROM ${tableName} WHERE ${conditions.join(' AND ')}`, params);
+        
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=Raw_Data_${tableType}_${Date.now()}.xlsx`);
+        
+        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
+        const worksheet = workbook.addWorksheet('Raw Data');
+        
+        if (rows.length > 0) {
+            worksheet.columns = Object.keys(rows[0]).map(key => ({ header: key.toUpperCase(), key, width: 20 }));
+            rows.forEach(row => worksheet.addRow(row).commit());
+        }
+        await workbook.commit();
+    } catch (error) { res.status(500).send("Export failed: " + error.message); }
 };

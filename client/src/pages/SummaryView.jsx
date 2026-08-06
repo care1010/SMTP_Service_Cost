@@ -15,6 +15,7 @@ import {
     HiOutlineViewGrid,
     HiOutlineUpload,
     HiChevronDown,
+    HiOutlineDatabase,
 } from "react-icons/hi";
 
 // ─────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ const WbsTypeInlineDropdown = ({ options = [], selected = [], onChange }) => {
 // MAIN COMPONENT
 // Props: filters, onFilterChange, onResetFilters — App.js se aate hain
 // ═══════════════════════════════════════════════════
-const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
+const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveTab }) => {
     const [options, setOptions] = useState({});
     const [kpiData, setKpiData] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -362,6 +363,15 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
                     <div className="flex-1"><KpiCards data={kpiData} /></div>
                     
                     <div className="flex gap-2 items-center">
+                        {/* 🔥 NAYA BUTTON: Navigate to Raw Drill */}
+                        <button 
+                            onClick={() => setActiveTab('cj74/cji5')} 
+                            className="border border-slate-300 border-t-4 border-t-purple-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg"
+                        >
+                            <HiOutlineDatabase className="text-purple-600 text-lg" /> 
+                            <span className="text-sm font-semibold text-purple-700">Raw Data</span>
+                        </button>
+
                         <button onClick={handleFullExport} className="border border-slate-300 border-t-4 border-t-blue-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
                             <HiOutlineUpload className="text-blue-600" /> 
                             <span className="text-sm font-semibold text-blue-700">Export</span>

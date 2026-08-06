@@ -1,7 +1,6 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 
-// 🚫 NODEMAILER AND ETHEREAL COMPLETELY REMOVED FOR CORPORATE SAFETY
 // We will just print the email to the local terminal.
 
 exports.getDropdownData = async (req, res) => {
