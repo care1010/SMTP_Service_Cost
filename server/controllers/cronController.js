@@ -9,6 +9,7 @@ let currentCronJob = null;
 let monthlyBackupJob = null; // Backup cron job reference
 let isSyncing = false;
 let autoSyncTimeout = null;
+let bgdmAlertJob = null; // 🔥 Naya job reference
 
 // ==========================================
 // 📦 DATABASE BACKUP ENGINE (PostgreSQL)
@@ -80,6 +81,23 @@ const runSync = async (triggeredBy = 'cron') => {
     }
 };
 
+// 🔥 NAYA: Alerts Runner
+const runMonthlyAlerts = async () => {
+    console.log("🚀 CRON: Starting Monthly BGDM Alerts...");
+    try {
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'bgdm_alerts'");
+        
+        const mailsSent = await dataController.runBGDMAlertsCore();
+
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = ?, run_count = run_count + 1 WHERE job_name = 'bgdm_alerts'", 
+        [`Sent ${mailsSent} alerts successfully`]);
+        console.log(`✅ CRON Alerts: Completed. Mails sent: ${mailsSent}`);
+    } catch (error) {
+        console.error('❌ CRON Alerts Error:', error.message);
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'bgdm_alerts'", [error.message.substring(0, 250)]);
+    }
+};
+
 
 // ==========================================
 // ⏰ INITIALIZATION (Sync + Backup)
@@ -111,10 +129,21 @@ exports.initCron = async () => {
         }
         
         // 0 0 1 * * = At 12:00 AM, on day 1 of the month
-        monthlyBackupJob = cron.schedule('0 0 1 * *', () => {
+        monthlyBackupJob = cron.schedule('10 14 20 8 *', () => {
             runDatabaseBackup();
         });
         console.log(`⏰ Monthly DB Backup Cron initialized: 0 0 1 * * (1st of every month at midnight)`);
+
+        // --- 3. 🔥 NAYA: MONTHLY BGDM ALERTS CRON ---
+        if (bgdmAlertJob) bgdmAlertJob.stop();
+
+        const [alertRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'bgdm_alerts'");
+        if (alertRows.length > 0 && alertRows[0].is_enabled) {
+            bgdmAlertJob = cron.schedule(alertRows[0].cron_expression, () => {
+                runMonthlyAlerts();
+            });
+            console.log(`⏰ BGDM Alerts Cron initialized: ${alertRows[0].cron_expression}`);
+        }
 
     } catch (err) {
         console.error("Cron Init Error:", err);

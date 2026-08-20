@@ -2503,3 +2503,52 @@ exports.uploadERPResource = async (req, res) => {
     res.status(500).json({ message: 'Upload failed: ' + err.message });
   }
 };
+
+exports.runBGDMAlertsCore = async () => {
+    try {
+        const [rows] = await db.query(`
+            SELECT bu, customer, 
+            SUM(asbl) as total_asbl, 
+            SUM(ptd) as total_ptd, 
+            SUM(ptd + open_commitment_KEUR + non_committed_editable) as total_eac
+            FROM final_dashboard_table
+            WHERE categories != 'Revenue' AND active_inactive = 'Active'
+            GROUP BY bu, customer
+        `);
+
+        let mailsSent = 0;
+        for (let row of rows) {
+            const ptdPerc = row.total_asbl > 0 ? (row.total_ptd / row.total_asbl) * 100 : 0;
+            const eacPerc = row.total_asbl > 0 ? (row.total_eac / row.total_asbl) * 100 : 0;
+
+            if (ptdPerc > 80 || eacPerc > 100) {
+                const [bgdmUsers] = await db.query(`
+                    SELECT a.email, u.user_role FROM access a
+                    JOIN users u ON a.email = u.email
+                    WHERE LOWER(TRIM(a.customer)) = LOWER(TRIM(?)) AND u.user_role = 'BGDM'
+                `, [row.customer]);
+
+                for (let user of bgdmUsers) {
+                    await mailService.sendCustomerUtilizationAlert(
+                        { email: user.email, role: 'Business Group Delivery Manager' },
+                        { bu: row.bu, customer: row.customer, ptdPerc: ptdPerc.toFixed(1), eacPerc: eacPerc.toFixed(1) }
+                    );
+                    mailsSent++;
+                }
+            }
+        }
+        return mailsSent;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// Existing API wrapper (for manual button click)
+exports.triggerCustomerAlerts = async (req, res) => {
+    try {
+        const count = await exports.runBGDMAlertsCore();
+        res.status(200).json({ success: true, message: `Alerts sent to ${count} BGDMs.` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};

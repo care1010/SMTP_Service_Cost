@@ -1,7 +1,5 @@
 const transporter = require("../config/mailer");
 
-
-
 // Tool configuration
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
@@ -277,6 +275,58 @@ const sendOTPMail = async (email, otp) => {
 };
 
 
+const sendCustomerUtilizationAlert = async (recipient, data) => {
+    const mailOptions = {
+        from: '"NI INDIA Cost Tracker Alert" <care.ni_india@nokia.com>',
+        to: recipient.email,
+        subject: `⚠️ URGENT: Delivery Alert - Budget Threshold Exceeded (${data.customer})`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; max-width:650px; margin:auto; border:1px solid #ddd; border-radius:10px; overflow:hidden;">
+            <div style="background:#005AFF; color:#ffffff; padding:20px;">
+                <h2 style="margin:0;">Stakeholder Financial Alert</h2>
+                <p style="margin:5px 0 0;">Role: Business Group Delivery Manager (BGDM)</p>
+            </div>
+            <div style="padding:25px; color:#333333;">
+                <p>Dear Team,</p>
+                <p>This is an automated notification regarding the financial health of your assigned customer account. The following metrics have crossed the defined safety thresholds:</p>
+                
+                <table style="width:100%; margin:20px 0; border-collapse:collapse; background:#f9f9f9; border: 1px solid #eee;">
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Customer:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.customer}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Business Unit:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.bu}</td>
+                    </tr>
+                    <tr style="background:#fff1f1;">
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">PTD Utilization:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.ptdPerc}%</td>
+                    </tr>
+                    <tr style="background:#fff1f1;">
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">EAC vs ASBL:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.eacPerc}%</td>
+                    </tr>
+                </table>
+
+                <p style="font-size:14px; line-height:1.6;"><strong>Action Required:</strong> Please coordinate with the Project Managers (PMs) to review the 'Non-Committed' cost entries and ensure that the project is within the approved budget (ASBL).</p>
+                
+                <div style="text-align:center; margin:35px 0;">
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 35px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                        Login to Tool
+                    </a>
+                </div>
+
+                <p style="margin-top:30px; border-top:1px solid #eee; pt-15px;">Best Regards,<br><strong>NI INDIA Financial Control Team</strong></p>
+            </div>
+            <div style="background:#f4f4f4; padding:15px; text-align:center; font-size:11px; color:#999;">
+                This is a system-generated alert for BGDM role only. Please do not reply to this mailbox.
+            </div>
+        </div>`
+    };
+    return transporter.sendMail(mailOptions);
+};
+
 
 module.exports = {
 
@@ -286,6 +336,8 @@ module.exports = {
 
     sendDeclineMail,
 
-    sendOTPMail
+    sendOTPMail,
+
+    sendCustomerUtilizationAlert
 
 };
