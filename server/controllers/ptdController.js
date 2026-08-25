@@ -2,6 +2,7 @@ const db = require('../config/db');
 const xlsx = require('xlsx');
 const pgFormat = require('pg-format');
 const { triggerAutoSync } = require('./cronController');
+const mailService = require('../services/mailService');
 
 const formatExcelDate = (excelDate) => {
     if (!excelDate) return null;
@@ -15,20 +16,22 @@ const formatExcelDate = (excelDate) => {
 exports.uploadPtdData = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+        
+        console.log("🚀 PTD UPLOAD: Started processing...");
         const workbook = xlsx.readFile(req.file.path, { cellDates: true });
         const sheetNames = workbook.SheetNames;
+        
         let affectedLoas = new Set();
-        const batchSize = 500; // Optimal for memory
+        let detectedPeriods = new Set(); 
+        const batchSize = 500;
 
-        // ==========================================
-        // --- 1. CJI5 SHEET PROCESSING ---
-        // ==========================================
+        // 1. CJI5 Processing
         if (sheetNames.includes('CJI5')) {
             const cji5Data = xlsx.utils.sheet_to_json(workbook.Sheets['CJI5']);
             await db.query("TRUNCATE TABLE cji5_new");
-
             const cji5Rows = cji5Data.filter(row => row['WBS Element']).map(row => {
                 if (row['LOA_ID']) affectedLoas.add(row['LOA_ID'].toString().trim());
+                if (row['Per']) detectedPeriods.add(`P${row['Per'].toString().trim().padStart(3, '0')}`);
                 return [
                     row['Project Def.'], row['WBS Element'], row['RefDocNo'], row['Item'],
                     row['CO object name'], row['Supplier'], row['Name'], row['Year'],
@@ -40,33 +43,19 @@ exports.uploadPtdData = async (req, res) => {
                     row['Obj Curr.'], row['Value in Obj. Crcy']
                 ];
             });
-
             for (let i = 0; i < cji5Rows.length; i += batchSize) {
-                // 🔥 Bypass db.js parser by formatting here
                 const sql = pgFormat(`INSERT INTO cji5_new (project_def, wbs_element, refdocno, item, co_object_name, supplier, name, year, per, cost_element, cost_element_descr, matl_group, material, description, user_name, docc, cocode, exch_rate, quantity, qty_plan, debit_date, doc_date, report_currency, val_in_rep_cur, tcurr, value_tcur, obj_curr, value_in_obj_crcy) VALUES %L`, cji5Rows.slice(i, i + batchSize));
                 await db.query(sql); 
             }
-            console.log("✅ CJI5 Batches Uploaded");
+            console.log(`✅ CJI5 uploaded.`);
         }
 
-        // ==========================================
-        // --- 2. CJ74 SHEET PROCESSING ---
-        // ==========================================
+        // 2. CJ74 Processing
         if (sheetNames.includes('CJ74')) {
             const cj74Data = xlsx.utils.sheet_to_json(workbook.Sheets['CJ74']);
-
-            // Optimized Duplicate Check (No '?' used here to avoid crash)
-            const keys = Array.from(new Set(cj74Data.filter(r => r['Object'] && r['Year']).map(r => `${r['Object'].toString().trim()}_${r['Year']}_${r['Per']}`)));
-            
-            for (let i = 0; i < keys.length; i += 200) {
-                const batch = keys.slice(i, i + 200);
-                const sqlCheck = pgFormat("SELECT object_1 FROM cj74_new WHERE (object_1 || '_' || year || '_' || per) IN (%L) LIMIT 1", batch);
-                const [dups] = await db.query(sqlCheck);
-                if (dups.length > 0) return res.status(400).json({ error: `Duplicate data found for WBS ${dups[0].object_1}` });
-            }
-
             const cj74Rows = cj74Data.filter(row => row['Object']).map(row => {
                 if (row['LOA_ID']) affectedLoas.add(row['LOA_ID'].toString().trim());
+                if (row['Per']) detectedPeriods.add(`P${row['Per'].toString().trim().padStart(3, '0')}`);
                 return [
                     row['CoCd'], row['Year'], row['Per'], row['Project def.'], 
                     row['Object'], row['Object'], row['Object'], row['Profit Ctr'], 
@@ -79,18 +68,14 @@ exports.uploadPtdData = async (req, res) => {
                     row['ObCur'], row['Value in Obj. Crcy'], row['RCurr'], row['Val.in RC']
                 ];
             });
-
             for (let i = 0; i < cj74Rows.length; i += batchSize) {
-                // 🔥 Bypass db.js parser by construction SQL with %L
                 const sql = pgFormat(`INSERT INTO cj74_new (cocd, year, per, proj_def, object_1, object_2, object_3, profit_ctr, cost_element, cost_element_name, cost_element_descr, pur_doc, purchase_order_text, document_no, material, material_description, name1, refdocno, frm, user_name, offst_acct, name_of_offsetting_account, quantity, created_on, postg_date, doc_date, tcurr, value_trancurr, obcur, val_in_obj_crcy, rcurr, val_in_rc) VALUES %L`, cj74Rows.slice(i, i + batchSize));
                 await db.query(sql);
                 console.log(`📦 CJ74: Batch ${Math.floor(i/batchSize) + 1} Done`);
             }
         }
 
-        // ==========================================
-        // --- 3. FINAL DASHBOARD SYNC ---
-        // ==========================================
+        // 3. Dashboard Sync
         const loaList = Array.from(affectedLoas).filter(id => id);
         if (loaList.length > 0) {
             const syncSql = pgFormat(`
@@ -110,13 +95,35 @@ exports.uploadPtdData = async (req, res) => {
                 WHERE f.loa_id = src.loa_id AND f.categories = src.categories
             `, loaList);
             await db.query(syncSql);
+            console.log("✅ Dashboard Sync Done");
+        }
+
+        // 4. 🔥 FORCE TRIGGER MAIL (At the very end)
+        let periodArray = Array.from(detectedPeriods);
+        
+        // --- SAFE FALLBACK: Agar Excel mein 'Per' nahi mila, toh Current Month use karo ---
+        if (periodArray.length === 0) {
+            const curMonthNum = new Date().getMonth() + 1; // August = 8
+            periodArray.push(`P${curMonthNum.toString().padStart(3, '0')}`); // P008
+        }
+
+        try {
+            const testingRecipient = ["neha.sain.ext@nokia.com"];
+            for (const p of periodArray) {
+                await mailService.sendPTDUpdateAlert(testingRecipient, p);
+                console.log(`📧 PTD Mail Sent for period: ${p}`);
+            }
+        } catch (mailErr) {
+            console.error("❌ Mail failed:", mailErr.message);
         }
 
         triggerAutoSync('ptd_uploaded');
-
+        
+        // Final Response jiske baad UI pe Successful wala pop-up aata h
         res.status(200).json({ message: "Everything Uploaded and Synced Successfully!" });
+
     } catch (error) { 
-        console.error("PTD ERROR:", error); 
+        console.error("❌ PTD ERROR:", error); 
         res.status(500).json({ error: error.message }); 
     }
 };

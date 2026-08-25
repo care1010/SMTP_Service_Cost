@@ -14,7 +14,7 @@ const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'service_cost',
-    port: parseInt(process.env.DB_PORT) || 5433,
+    port: parseInt(process.env.DB_PORT) || 5432,
 
     // 🔥 Optimal pool size = (CPU cores * 2) + disk spindles
     // Local dev: 10-20 sufficient; production: 20-30 max
@@ -27,6 +27,24 @@ const pool = new Pool({
     // Keep connections alive (prevents "connection terminated unexpectedly")
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
+});
+
+pool.query(`
+    SELECT
+        current_database() AS database,
+        current_user AS username,
+        inet_server_addr() AS server_ip,
+        inet_server_port() AS server_port,
+        current_schema() AS schema
+`, (err, result) => {
+    if (err) {
+        console.error("❌ DB INFO ERROR:", err);
+    } else {
+        console.log("=================================");
+        console.log("🟢 NODE DATABASE INFORMATION");
+        console.table(result.rows);
+        console.log("=================================");
+    }
 });
 
 // Pool health monitoring

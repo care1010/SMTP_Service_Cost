@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const NodeCache = require('node-cache');
+const mailService = require("../services/mailService"); 
 
 const filterCache = new NodeCache({ stdTTL: 300 });
 const inFlightRequests = new Map();
@@ -2504,51 +2505,90 @@ exports.uploadERPResource = async (req, res) => {
   }
 };
 
-exports.runBGDMAlertsCore = async () => {
+// 1. 🔥 NAYA: Table ko refresh karne ka logic (Exact UI matching)
+// server/controllers/dataController.js
+
+const refreshAlertSnapshot = async () => {
+    console.log("🔄 Syncing Snapshot with Dashboard BU-Level Logic...");
     try {
-        const [rows] = await db.query(`
-            SELECT bu, customer, 
-            SUM(asbl) as total_asbl, 
-            SUM(ptd) as total_ptd, 
-            SUM(ptd + open_commitment_KEUR + non_committed_editable) as total_eac
-            FROM final_dashboard_table
-            WHERE categories != 'Revenue' AND active_inactive = 'Active'
+        await db.query(`TRUNCATE TABLE stakeholder_metrics_snapshot`);
+        
+        const insertSql = `
+            INSERT INTO stakeholder_metrics_snapshot (bu, customer, asbl, ptd, eac, ptd_perc, eac_perc)
+            SELECT 
+                bu, 
+                customer,
+                SUM(cat_asbl) as total_asbl,
+                SUM(cat_ptd) as total_ptd,
+                SUM(cat_ptd + cat_oc + cat_nc) as total_eac,
+                -- 🔥 Formula: (PTD / ASBL) * 100
+                CASE WHEN SUM(cat_asbl) > 0 THEN (SUM(cat_ptd) / SUM(cat_asbl)) * 100 ELSE 0 END as ptd_p,
+                -- 🔥 Formula: (EAC / ASBL) * 100
+                CASE WHEN SUM(cat_asbl) > 0 THEN (SUM(cat_ptd + cat_oc + cat_nc) / SUM(cat_asbl)) * 100 ELSE 0 END as eac_p
+            FROM (
+                /* Pehle Category level par unique values consolidate karo */
+                SELECT 
+                    bu, 
+                    customer, 
+                    "Merged_wbs_categories",
+                    -- Sabhi types ka ASBL jodo (Project+AMC+Warranty) aur uska MAX lo per category
+                    MAX(COALESCE(asbl_project, 0) + COALESCE(asbl_amc, 0) + COALESCE(asbl_warranty, 0)) as cat_asbl,
+                    -- Transactional Sums
+                    SUM(ptd) as cat_ptd,
+                    SUM(open_commitment_KEUR) as cat_oc,
+                    MAX(non_committed_editable) as cat_nc
+                FROM final_dashboard_table
+                WHERE categories != 'Revenue' 
+                  AND active_inactive = 'Active'
+                  AND cost_revenue != 'NTC'
+                GROUP BY bu, customer, "Merged_wbs_categories"
+            ) as consolidated_category_level
             GROUP BY bu, customer
-        `);
+            HAVING SUM(cat_asbl) > 0`;
 
-        let mailsSent = 0;
-        for (let row of rows) {
-            const ptdPerc = row.total_asbl > 0 ? (row.total_ptd / row.total_asbl) * 100 : 0;
-            const eacPerc = row.total_asbl > 0 ? (row.total_eac / row.total_asbl) * 100 : 0;
-
-            if (ptdPerc > 80 || eacPerc > 100) {
-                const [bgdmUsers] = await db.query(`
-                    SELECT a.email, u.user_role FROM access a
-                    JOIN users u ON a.email = u.email
-                    WHERE LOWER(TRIM(a.customer)) = LOWER(TRIM(?)) AND u.user_role = 'BGDM'
-                `, [row.customer]);
-
-                for (let user of bgdmUsers) {
-                    await mailService.sendCustomerUtilizationAlert(
-                        { email: user.email, role: 'Business Group Delivery Manager' },
-                        { bu: row.bu, customer: row.customer, ptdPerc: ptdPerc.toFixed(1), eacPerc: eacPerc.toFixed(1) }
-                    );
-                    mailsSent++;
-                }
-            }
-        }
-        return mailsSent;
-    } catch (error) {
-        throw error;
+        await db.query(insertSql);
+        console.log("✅ Snapshot updated at BU + Customer Level.");
+    } catch (err) {
+        console.error("❌ refreshAlertSnapshot Failed:", err.message);
     }
 };
 
-// Existing API wrapper (for manual button click)
-exports.triggerCustomerAlerts = async (req, res) => {
+// 2. 🔥 UPDATED: Core Mailer Logic (Reads from Snapshot)
+exports.runBGDMAlertsCore = async () => {
+    let mailsSent = 0;
     try {
-        const count = await exports.runBGDMAlertsCore();
-        res.status(200).json({ success: true, message: `Alerts sent to ${count} BGDMs.` });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        await refreshAlertSnapshot();
+
+        // Sirf wahi data uthayein jo limits cross kar chuka hai
+        const [rows] = await db.query(`
+            SELECT * FROM stakeholder_metrics_snapshot 
+            WHERE ptd_perc > 80 OR eac_perc > 100
+        `);
+
+        for (let row of rows) {
+            const [bgdmUsers] = await db.query(`
+                SELECT a.email FROM access a
+                JOIN users u ON a.email = u.email
+                WHERE LOWER(TRIM(a.customer)) = LOWER(TRIM(?))
+                AND TRIM(u.user_role) = 'BGDM'
+            `, [row.customer]);
+
+            for (let user of bgdmUsers) {
+                // Test Override: Neha
+                const testEmail = "neha.sain.ext@nokia.com"; 
+
+                await mailService.sendCustomerUtilizationAlert(
+                    { email: testEmail, role: 'BGDM Stakeholder' },
+                    { 
+                        bu: row.bu, 
+                        customer: row.customer, 
+                        ptdPerc: Number(row.ptd_perc).toFixed(1), 
+                        eacPerc: Number(row.eac_perc).toFixed(1) 
+                    }
+                );
+                mailsSent++;
+            }
+        }
+        return mailsSent;
+    } catch (error) { throw error; }
 };

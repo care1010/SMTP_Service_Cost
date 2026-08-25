@@ -4,7 +4,7 @@ const transporter = require("../config/mailer");
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.105:3001/";
+const TOOL_LINK = "http://10.68.32.163:3000/";
 
 
 
@@ -299,6 +299,7 @@ const sendCustomerUtilizationAlert = async (recipient, data) => {
                         <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Business Unit:</td>
                         <td style="padding:12px; border-bottom:1px solid #eee;">${data.bu}</td>
                     </tr>
+                    
                     <tr style="background:#fff1f1;">
                         <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">PTD Utilization:</td>
                         <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.ptdPerc}%</td>
@@ -327,6 +328,87 @@ const sendCustomerUtilizationAlert = async (recipient, data) => {
     return transporter.sendMail(mailOptions);
 };
 
+// const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
+//     // 🔥 Current month name and year (e.g., August 2026)
+//     const now = new Date();
+//     const monthName = now.toLocaleString('en-US', { month: 'long' });
+//     const deadlineDate = `15th ${monthName}`; // e.g., 15th August
+
+//     const mailOptions = {
+//         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+//         // to: recipientEmails, // Array of all users + admin
+//         to: recipientEmails,
+//         cc: ["neha.sain.ext@nokia.com"],
+//         subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
+//         html: `
+//         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
+//             <p>Dear Team,</p>
+            
+//             <p>
+//                 PTD for <strong>${periodCode}</strong> has been updated in PBI. 
+//                 Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>. 
+//                 Below is the link for FTC inputs Tool.
+//             </p>
+
+//             <p style="margin: 25px 0;">
+//                 <strong>Tool Link:</strong> <a href="${TOOL_LINK}" style="color: #124191; font-weight: bold; text-decoration: underline;">${TOOL_LINK}</a>
+//             </p>
+
+//             <p>Best Regards,<br><strong>Neha Sain</strong></p>
+
+//             <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #777;">
+//                 <p><strong>Note:</strong> This is an automatically generated email. Please do not reply directly to this message. 
+//                 For any query/comment/suggestion, please send an email to <a href="mailto:neha.sain.ext@nokia.com">neha.sain.ext@nokia.com</a>.</p>
+//             </div>
+//         </div>`
+//     };
+
+//     return transporter.sendMail(mailOptions);
+// };
+
+// server/services/mailService.js
+
+const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
+    // 🔥 logic: Hamesha current month ki 15th date dikhayega
+    const now = new Date();
+    const monthName = now.toLocaleString('en-US', { month: 'long' });
+    const deadlineDate = `15th ${monthName}`; 
+
+    const mailOptions = {
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+        // 🔥 TESTING MODE: Sending only to you
+        to: "neha.sain.ext@nokia.com",
+        cc: "neha.sain.ext@nokia.com",
+        // 🔥 BCC added
+        bcc: "care.ni_india@nokia.com", 
+        
+        subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
+            <p>Dear Team,</p>
+            
+            <p>
+                PTD for <strong>${periodCode}</strong> has been updated in PBI. 
+                Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>. 
+                Below is the link for FTC inputs Tool.
+            </p>
+
+            <p style="margin: 25px 0;">
+                <strong>Tool Link:</strong> <a href="${TOOL_LINK}" style="color: #124191; font-weight: bold; text-decoration: underline;">${TOOL_LINK}</a>
+            </p>
+
+            <p>Best Regards,<br><strong>Neha Sain</strong></p>
+
+            <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #777;">
+                <p><strong>Note:</strong> This is an automatically generated email. Please do not reply directly to this message. 
+                For any query/comment/suggestion, please send an email to <a href="mailto:neha.sain.ext@nokia.com">neha.sain.ext@nokia.com</a>.</p>
+            </div>
+        </div>`
+    };
+
+    return transporter.sendMail(mailOptions);
+};
+
 
 module.exports = {
 
@@ -338,6 +420,8 @@ module.exports = {
 
     sendOTPMail,
 
-    sendCustomerUtilizationAlert
+    sendCustomerUtilizationAlert,
+
+    sendPTDUpdateAlert
 
 };
